@@ -1,0 +1,17 @@
+{
+    "wallets": [
+        {
+            "walletAddr": "Example Wallet 1",
+            "miningKey": "your mining key",
+            "numberOfThreads": 10,
+            "device": "Arduino"
+        },
+        {
+            "walletAddr": "Example Wallet 2",
+            "miningKey": "your mining key",
+            "rigIdentifier": "MyDucoRig",
+            "numberOfThreads": 3,
+            "device": "ESP32"
+        }
+    ]
+}
