@@ -14,5 +14,6 @@
 #define REJECTED 10
 #define THREAD_LIMIT_REACHED 11
 #define VALUE_ERROR 12
+#define CONNECTION_CLOSED 13
 
 #endif

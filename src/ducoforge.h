@@ -27,6 +27,7 @@ class DuinoV3 {
         Networking::Mining ***miningConnections;
         int *numAcceptedShares;
         int *numRejectedShares;
+        int *numIgnoredShares;
 
         void miningThread(int walletIndex, int threadIndex, int core);
 };

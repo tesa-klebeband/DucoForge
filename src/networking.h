@@ -59,7 +59,7 @@ class Networking {
                 Mining();
                 int setupMiningConnection(PoolConfig *poolConfig);
                 int getJob(MiningJob *job, MiningConfig *miningConfig);
-                int submitResult(uint32_t result, int hashrate, MiningConfig *miningConfig);
+                int submitResult(uint32_t result, int hashrate, MiningConfig *miningConfig, PoolConfig *poolConfig);
 
             private:
                 sockaddr_in poolAddr;

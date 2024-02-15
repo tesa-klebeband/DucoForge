@@ -1,17 +1,17 @@
 #include "config.h"
 
 #define KEY_MISSING(wallet, key) { \
-    DEBUG_PRINT("Wallet %s does not contain %s\n", wallet, key); \
+    fprintf(stderr, "Wallet %s does not contain %s\n", wallet, key); \
     return FIELD_ERROR; \
 }
 
 #define INVALID_VALUE(wallet, key) { \
-    DEBUG_PRINT("Wallet %s, %s has invalid value\n", wallet, key); \
+    fprintf(stderr, "Wallet %s, %s has invalid value\n", wallet, key); \
     return VALUE_ERROR; \
 }
 
 #define WRONG_TYPE(wallet, key) { \
-    DEBUG_PRINT("Wallet %s, %s has wrong type\n", wallet, key); \
+    fprintf(stderr, "Wallet %s, %s has wrong type\n", wallet, key); \
     return TYPE_ERROR; \
 }
 
@@ -28,7 +28,7 @@ int Config::loadConfig(const char* path) {
     // Open and read the config file into a string
     std::ifstream in(path);
     if (!in.is_open()) {
-        DEBUG_PRINT("Failed to open config file\n");
+        fprintf(stderr, "Failed to open config file\n");
         return FILE_ERROR;
     }
     std::string contents((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
@@ -37,21 +37,21 @@ int Config::loadConfig(const char* path) {
     // Parse the config file and check for parsing errors
     config.Parse(contents.c_str());
     if (config.HasParseError()) {
-        DEBUG_PRINT("Failed to parse config file\n");
+        fprintf(stderr, "Failed to parse config file\n");
         return PARSE_ERROR;
     }
 
     // Validate the wallets key by checking its existence, type and size
     if (!config.HasMember(WALLET_OBJECT)) {
-        DEBUG_PRINT("Config file does not contain wallets\n");
+        fprintf(stderr, "Config file does not contain wallets\n");
         return FIELD_ERROR;
     }
     if (config[WALLET_OBJECT].GetType() != rapidjson::kArrayType) {
-        DEBUG_PRINT("Wallets key has wrong type\n");
+        fprintf(stderr, "Wallets key has wrong type\n");
         return TYPE_ERROR;
     }
     if (config[WALLET_OBJECT].Size() == 0) {
-        DEBUG_PRINT("Wallets key is empty\n");
+        fprintf(stderr, "Wallets key is empty\n");
         return FIELD_ERROR;
     }
 
@@ -122,7 +122,7 @@ int Config::loadConfig(const char* path) {
             } else if (config[WALLET_OBJECT][i][HASHRATE_OBJECT].GetInt() <= 0) {
                 INVALID_VALUE(walletAddress.c_str(), HASHRATE_OBJECT);
             } else if (config[WALLET_OBJECT][i][HASHRATE_OBJECT].GetInt() != deviceHashRates[device]) {
-                DEBUG_PRINT("WARNING: Wallet entry %s, hashrate key has value different than default for device\n", walletAddress.c_str());
+                fprintf(stderr, "WARNING: Wallet entry %s, hashrate key has value different than default for device\n", walletAddress.c_str());
             }
         } else {
             config[WALLET_OBJECT][i].AddMember(HASHRATE_OBJECT, deviceHashRates[device], config.GetAllocator());

@@ -221,11 +221,16 @@ int Networking::Mining::getJob(MiningJob *miningJob, MiningConfig *miningConfig)
 
     send(sock, job.c_str(), job.length(), 0);
     char jobData[128] = {0};
-    if (recv(sock, jobData, 128, 0) < 0) {
+    int bytesRead = recv(sock, jobData, 128, 0);
+    if (bytesRead < 0) {
         DEBUG_PRINT("Failed to receive job\n");
         perror("recv");
         return GET_ERROR;
+    } else if (bytesRead == 0) {
+        DEBUG_PRINT("Connection closed\n");
+        return CONNECTION_CLOSED;
     }
+
     memcpy(miningJob->lastblockhash, jobData, 40);
     memcpy(miningJob->newblockhash, jobData + 41, 40);
     miningJob->difficulty = atoi(jobData + 82);
@@ -239,7 +244,7 @@ int Networking::Mining::getJob(MiningJob *miningJob, MiningConfig *miningConfig)
  * @param hashrate The hashrate of the device
  * @return The result of the operation (results are defined in result.h)
 */
-int Networking::Mining::submitResult(uint32_t result, int hashrate, MiningConfig *miningConfig) {
+int Networking::Mining::submitResult(uint32_t result, int hashrate, MiningConfig *miningConfig, PoolConfig *poolConfig) {
     std::string additional = "";
     if (deviceCores[miningConfig->device] > 1) {
         additional = std::string(SEPERATOR) + std::to_string(miningConfig->walletID);
@@ -251,19 +256,27 @@ int Networking::Mining::submitResult(uint32_t result, int hashrate, MiningConfig
         + std::string(SEPERATOR) + miningConfig->ducoID
         + additional
         + std::string(END_TOKEN);
-    
+
     send(sock, resultStr.c_str(), resultStr.length(), 0);
     char feedback[64] = {0};
-    if (recv(sock, feedback, 64, 0) < 0) {
+    int bytesRead = recv(sock, feedback, 64, 0);
+    if (bytesRead < 0) {
         DEBUG_PRINT("Failed to receive feedback\n");
         perror("recv");
         return GET_ERROR;
+    } else if (bytesRead == 0) {
+        DEBUG_PRINT("Connection closed\n");
+        return CONNECTION_CLOSED;
     }
     
-    if (memcmp(feedback, "GOOD", 4) != 0) {
+    if (memcmp(feedback, "GOOD", 4) == 0) {
+        return ACCEPTED;
+    } else if (memcmp(feedback, "BAD", 3) == 0) {
+        DEBUG_PRINT("Rejected share: %s\n", feedback);
         return REJECTED;
     } else {
-        return ACCEPTED;
+        DEBUG_PRINT("Invalid feedback: %s\n", feedback);
+        return INVALID;
     }
 }
 

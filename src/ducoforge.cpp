@@ -22,10 +22,12 @@ void DuinoV3::startMining() {
     miningConfigs = new MiningConfig*[walletCount];
     numAcceptedShares = new int[walletCount];
     numRejectedShares = new int[walletCount];
+    numIgnoredShares = new int[walletCount];
 
     for (int i = 0; i < walletCount; i++) {
         numAcceptedShares[i] = 0;
         numRejectedShares[i] = 0;
+        numIgnoredShares[i] = 0;
 
         std::string device = config.getDeviceByIndex(i);
         int cores = deviceCores[device];
@@ -92,7 +94,8 @@ void DuinoV3::startMining() {
             fprintf(stderr, "      Device:          %s\n", config.getDeviceByIndex(i).c_str());
             fprintf(stderr, "      Hashrate:        %.2f kH/s\n", (float) (config.getHashrateByIndex(i) * deviceCores[config.getDeviceByIndex(i)] * config.getNumberOfThreadsByIndex(i)) / 1000.0);
             fprintf(stderr, "      Accepted shares: %d\n", numAcceptedShares[i]);
-            fprintf(stderr, "      Rejected shares: %d\n\n", numRejectedShares[i]);
+            fprintf(stderr, "      Rejected shares: %d\n", numRejectedShares[i]);
+            fprintf(stderr, "      Ignored shares:  %d\n\n", numIgnoredShares[i]);
         }
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
@@ -116,15 +119,27 @@ void DuinoV3::miningThread(int walletIndex, int threadIndex, int core) {
         unsigned long millis = std::chrono::time_point_cast<std::chrono::milliseconds>(std::chrono::system_clock::now()).time_since_epoch().count();
 
         // Get the job for the connection
-        if (miningConnections[walletIndex][threadIndex][core].getJob(&miningJobs[walletIndex][threadIndex][core], &miningConfigs[walletIndex][threadIndex]) != SUCCESS) {
-            DEBUG_PRINT("Failed to get job for wallet %s\n", miningConfigs[walletIndex][threadIndex].walletAddr.c_str());
+        int jobState = miningConnections[walletIndex][threadIndex][core].getJob(&miningJobs[walletIndex][threadIndex][core], &miningConfigs[walletIndex][threadIndex]);
+        if (jobState != SUCCESS) {
+            int reconnectState = miningConnections[walletIndex][threadIndex][core].setupMiningConnection(&poolConfigs[walletIndex]);
+            if (reconnectState != SUCCESS) {
+                fprintf(stderr, "Failed to reconnect for wallet %s after", miningConfigs[walletIndex][threadIndex].walletAddr.c_str());
+                if (reconnectState == CONNECTION_CLOSED) {
+                    fprintf(stderr, " connection was closed ");
+                } else {
+                    fprintf(stderr, " unknown error ");
+                }
+                fprintf(stderr, "while trying to submit share\n");
+                exit(-1);
+            }
+            numIgnoredShares[walletIndex]++;
             continue;
         }
 
         // Get the result of the DUCO-S1 algorithm for the job
         uint32_t result = ducoS1.getHashResult(&miningJobs[walletIndex][threadIndex][core]);
         if (result == HASH_NOT_FOUND) {
-            DEBUG_PRINT("Failed to find hash for wallet %s\n", miningConfigs[walletIndex][threadIndex].walletAddr.c_str());
+            fprintf(stderr, "Failed to find hash for wallet %s\n", miningConfigs[walletIndex][threadIndex].walletAddr.c_str());
         }
         
         // Calculate the time we need to wait before submitting the result, so the hashrate sounds legit to the pool
@@ -133,14 +148,25 @@ void DuinoV3::miningThread(int walletIndex, int threadIndex, int core) {
         if (delay > 0) std::this_thread::sleep_for(std::chrono::milliseconds(delay));
 
         // Submit the result to the pool
-        int state = miningConnections[walletIndex][threadIndex][core].submitResult(result, hashrate, &miningConfigs[walletIndex][threadIndex]);
+        int shareState = miningConnections[walletIndex][threadIndex][core].submitResult(result, hashrate, &miningConfigs[walletIndex][threadIndex], &poolConfigs[walletIndex]);
         
-        if (state == ACCEPTED) {
+        if (shareState == ACCEPTED) {
             numAcceptedShares[walletIndex]++;
-        } else if (state == REJECTED) {
+        } else if (shareState == REJECTED) {
             numRejectedShares[walletIndex]++;
         } else {
-            numRejectedShares[walletIndex]++;
+            int reconnectState = miningConnections[walletIndex][threadIndex][core].setupMiningConnection(&poolConfigs[walletIndex]);
+            if (reconnectState != SUCCESS) {
+                fprintf(stderr, "Failed to reconnect for wallet %s after", miningConfigs[walletIndex][threadIndex].walletAddr.c_str());
+                if (shareState == CONNECTION_CLOSED) {
+                    fprintf(stderr, " connection was closed ");
+                } else {
+                    fprintf(stderr, " unknown error ");
+                }
+                fprintf(stderr, "while trying to submit share\n");
+                exit(-1);
+            }
+            numIgnoredShares[walletIndex]++;
         }
     }
 }
