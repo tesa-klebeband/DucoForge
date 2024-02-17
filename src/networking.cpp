@@ -22,39 +22,6 @@ Networking::Mining::Mining() {
  * @return The result of the operation (results are defined in result.h)
 */
 int Networking::Pool::requestPool(PoolConfig *poolConfig, int numThreads) {
-    /* Old way of getting pool directly from server - deprecated due to maximum number of connections per pool (to limit workers)
-    // Get the response from the server
-    std::string response = get("https://server.duinocoin.com/getPool");
-    if (response.empty()) {
-        DEBUG_PRINT("Failed to get pool\n");
-        return GET_ERROR;
-    }
-
-    // Parse the response and check for parsing errors
-    doc = rapidjson::Document();
-    doc.Parse(response.c_str());
-    
-    if (doc.HasParseError()) {
-        DEBUG_PRINT("Failed to parse pool response\n");
-        DEBUG_PRINT("Error: %s\n", response.c_str());
-        return PARSE_ERROR;
-    }
-    if (!doc.HasMember("ip") || !doc.HasMember("name") || !doc.HasMember("region") || !doc.HasMember("port")) {
-        DEBUG_PRINT("Pool response is missing required fields\n");
-        return FIELD_ERROR;
-    }
-    if (!doc["ip"].IsString() || !doc["name"].IsString() || !doc["region"].IsString() || !doc["port"].IsInt()) {
-        DEBUG_PRINT("Pool response has wrong types\n");
-        return TYPE_ERROR;
-    }
-
-    // Set the pool configuration
-    poolConfig->ip = doc["ip"].GetString();
-    poolConfig->name = doc["name"].GetString();
-    poolConfig->region = doc["region"].GetString();
-    poolConfig->port = doc["port"].GetInt();
-    */
-
    // Get the pool based on free slots
     for (int i = 0; i < numPools; i++) {
         if (threadsPerPool[i] + numThreads <= MAX_THREADS_PER_POOL) {
@@ -158,50 +125,84 @@ int Networking::Pool::checkMiningKey(MiningConfig *miningConfig) {
 }
 
 /**
+ * Read from the socket
+ * @param data The data to read into
+ * @param size The size of the data
+ * @param recieved The amount of data recieved
+ * @return The result of the operation (results are defined in result.h) or the amount of data recieved
+*/
+int Networking::Mining::socketRead(void *data, std::size_t size) {
+    std::size_t recieved;
+    sf::Socket::Status status = socket.receive(data, size, recieved);
+    if (status != sf::Socket::Done) {
+        DEBUG_PRINT("Failed to read from pool: ");
+        if (status == sf::Socket::Disconnected) {
+            DEBUG_PRINT("Disconnected\n");
+            return SOCKET_DISCONNECTED;
+        } else {
+            DEBUG_PRINT("Error\n");
+            return SOCKET_READ_ERROR;
+        }
+    }
+    return recieved;
+}
+
+/**
+ * Write data to the socket
+ * @param data The data to write
+ * @param size The size of the data
+ * @return The result of the operation (results are defined in result.h) or the amount of data written
+*/
+int Networking::Mining::socketWrite(const void *data, std::size_t size) {
+    std::size_t sent;
+    sf::Socket::Status status = socket.send(data, size, sent);
+    if (status != sf::Socket::Done) {
+        DEBUG_PRINT("Failed to write to pool: ");
+        if (status == sf::Socket::Disconnected) {
+            DEBUG_PRINT("Disconnected\n");
+            return SOCKET_DISCONNECTED;
+        } else {
+            DEBUG_PRINT("Error\n");
+            return SOCKET_WRITE_ERROR;
+        }
+    }
+    return sent;
+}
+
+/**
  * Setup a connection to the mining pool
  * @return The result of the operation (results are defined in result.h)
 */
 int Networking::Mining::setupMiningConnection(PoolConfig *poolConfig) {
-    // Create a socket and connect to the pool
-    memset(&poolAddr, 0, sizeof(poolAddr));
-    poolAddr.sin_family = AF_INET;
-    poolAddr.sin_port = htons(poolConfig->port);
-    if (inet_pton(AF_INET, poolConfig->ip.c_str(), &poolAddr.sin_addr) <= 0) {
-        DEBUG_PRINT("Failed to convert pool IP\n");
-        return INVALID;
+    // Connect to the pool
+    if (socket.Disconnected != sf::Socket::Disconnected) {
+        socket.disconnect();
     }
-    sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock < 0) {
-        DEBUG_PRINT("Failed to create socket\n");
-        return INVALID;
-    }
-    if (connect(sock, (struct sockaddr *)&poolAddr, sizeof(poolAddr)) < 0) {
+    
+    sf::Socket::Status status = socket.connect(poolConfig->ip, poolConfig->port, sf::seconds(SOCKET_TIMEOUT_SECONDS));
+    if (status != sf::Socket::Done) {
         DEBUG_PRINT("Failed to connect to pool\n");
-        return INVALID;
+        return CONNECT_ERROR;
     }
 
     // Read the version and MOTD from the pool
     char ver[6] = {0};
-    if (recv(sock, ver, 6, 0) < 0) {
-        DEBUG_PRINT("Failed to receive version\n");
-        perror("recv");
-        return GET_ERROR;
-    }
-    for (int i = 0; i < 6; i++) {
-        if (ver[i] == '\n') {
-            ver[i] = '\0';
-            break;
-        }
+    int result = socketRead(ver, 6);
+    if (result < 0) {
+        return result;
     }
     poolConfig->serverVersion = ver;
 
     char motd[1024] = {0};
-    send(sock, "MOTD", 4, 0);
-    if (recv(sock, motd, 1024, 0) < 0) {
-        DEBUG_PRINT("Failed to receive MOTD\n");
-        perror("recv");
-        return GET_ERROR;
+    result = socketWrite("MOTD", 4);
+    if (result != 4) {
+        return result;
     }
+    result = socketRead(motd, 1024);
+    if (result < 0) {
+        return result;
+    }
+
     poolConfig->motd = motd;
 
     return SUCCESS;
@@ -219,16 +220,18 @@ int Networking::Mining::getJob(MiningJob *miningJob, MiningConfig *miningConfig)
         + std::string(SEPERATOR) + miningConfig->miningKey
         + std::string(END_TOKEN);
 
-    send(sock, job.c_str(), job.length(), 0);
+    // Send the job request to the pool 
+    int result = socketWrite(job.c_str(), job.length());
+    if (result != job.length()) {
+        return result;
+    }
+
     char jobData[128] = {0};
-    int bytesRead = recv(sock, jobData, 128, 0);
-    if (bytesRead < 0) {
-        DEBUG_PRINT("Failed to receive job\n");
-        perror("recv");
-        return GET_ERROR;
-    } else if (bytesRead == 0) {
-        DEBUG_PRINT("Connection closed\n");
-        return CONNECTION_CLOSED;
+
+    // Read the job from the pool
+    result = socketRead(jobData, 128);
+    if (result < 0) {
+        return result;
     }
 
     memcpy(miningJob->lastblockhash, jobData, 40);
@@ -257,18 +260,20 @@ int Networking::Mining::submitResult(uint32_t result, int hashrate, MiningConfig
         + additional
         + std::string(END_TOKEN);
 
-    send(sock, resultStr.c_str(), resultStr.length(), 0);
-    char feedback[64] = {0};
-    int bytesRead = recv(sock, feedback, 64, 0);
-    if (bytesRead < 0) {
-        DEBUG_PRINT("Failed to receive feedback\n");
-        perror("recv");
-        return GET_ERROR;
-    } else if (bytesRead == 0) {
-        DEBUG_PRINT("Connection closed\n");
-        return CONNECTION_CLOSED;
+    // Submit the result to the pool
+    int res = socketWrite(resultStr.c_str(), resultStr.length());
+    if (res != resultStr.length()) {
+        return res;
     }
+
+    char feedback[64] = {0};
     
+    // Read the feedback from the pool
+    res = socketRead(feedback, 64);
+    if (res < 0) {
+        return res;
+    }
+
     if (memcmp(feedback, "GOOD", 4) == 0) {
         return ACCEPTED;
     } else if (memcmp(feedback, "BAD", 3) == 0) {

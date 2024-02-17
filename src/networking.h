@@ -4,11 +4,9 @@
 #include <iostream>
 #include <curl/curl.h>
 #include <rapidjson/document.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
 #include <chrono>
 #include <thread>
+#include <SFML/Network.hpp>
 #include "debug.h"
 #include "result.h"
 #include "device.h"
@@ -19,6 +17,7 @@
 #define END_TOKEN "\n"
 
 #define REQUEST_WAIT 2000
+#define SOCKET_TIMEOUT_SECONDS 5000
 
 typedef struct {
     std::string ip;
@@ -62,8 +61,9 @@ class Networking {
                 int submitResult(uint32_t result, int hashrate, MiningConfig *miningConfig, PoolConfig *poolConfig);
 
             private:
-                sockaddr_in poolAddr;
-                int sock;
+                int socketRead(void *data, std::size_t size);
+                int socketWrite(const void *data, std::size_t size);
+                sf::TcpSocket socket;
         };
 
     protected:
