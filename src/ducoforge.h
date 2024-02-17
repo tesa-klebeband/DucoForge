@@ -10,6 +10,9 @@
 #include "ducoid.h"
 #include "algo.h"
 #include "rand.h"
+#include "webserver.h"
+
+#define RETRY_SECONDS 2
 
 class DuinoV3 {
     public:
@@ -28,7 +31,7 @@ class DuinoV3 {
         int *numAcceptedShares;
         int *numRejectedShares;
         int *numIgnoredShares;
-
+        WebServer webServer;
         void miningThread(int walletIndex, int threadIndex, int core);
 };
 
