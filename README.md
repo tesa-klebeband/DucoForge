@@ -28,7 +28,7 @@ make
 ## Using DucoForge
 DucoForge relies on a JSON configuration file to run. An example configuration file is provided in the repository. To run DucoForge, simply run the following command:
 ```bash
-build/DucoForge config.json
+build/ducoforge config.json
 ```
 
 ## License
